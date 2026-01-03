@@ -2,10 +2,16 @@ import os
 import sqlite3
 import json
 import subprocess
+import urllib.request
+import json as json_module
 from pathlib import Path
 import click
 import keyring
 from cryptography.fernet import Fernet, InvalidToken
+
+VERSION = "0.1.0"
+REPO_OWNER = "adityamiskin"
+REPO_NAME = "envman"
 
 KEYCHAIN_SERVICE = "envman"
 KEYCHAIN_KEY_NAME = "encryption_key"
@@ -132,10 +138,53 @@ def detect_project():
 
 
 @click.group()
+@click.option(
+    "--version",
+    is_flag=True,
+    expose_value=False,
+    callback=lambda ctx, param, value: click.echo(f"envman {VERSION}")
+    if value
+    else None,
+)
 def cli():
     """EnvMan: Manage your project environment files easily."""
     migrate_json_to_sqlite()
     migrate_plaintext_to_encrypted()
+
+
+def get_latest_version():
+    try:
+        url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
+        with urllib.request.urlopen(url, timeout=5) as response:
+            data = json_module.loads(response.read().decode())
+            return data.get("tag_name", "").lstrip("v")
+    except Exception:
+        return None
+
+
+def version_compare(v1, v2):
+    def parse(v):
+        return [int(x) for x in v.split(".")]
+
+    return parse(v1) > parse(v2)
+
+
+@cli.command(name="version")
+def version_cmd():
+    """Check installed version and compare with latest release."""
+    click.echo(f"envman {VERSION}")
+
+    latest = get_latest_version()
+    if latest:
+        if version_compare(latest, VERSION):
+            click.echo(f"Latest: {latest} (update available)")
+            click.echo(
+                f"Install: curl -sSf https://raw.githubusercontent.com/{REPO_OWNER}/{REPO_NAME}/main/install.sh | sh"
+            )
+        else:
+            click.echo(f"Latest: {latest} (up to date)")
+    else:
+        click.echo("Latest: unknown (could not fetch release info)")
 
 
 @cli.command()

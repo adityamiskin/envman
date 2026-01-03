@@ -17,11 +17,8 @@
 ## 🚀 Quick Start
 
 ```bash
-# Install
-cd envman
-uv pip install -e .
-source .venv/bin/activate
-ln -sf .venv/bin/envman ~/.local/bin/envman
+# Install (Linux/macOS)
+curl -sSf https://raw.githubusercontent.com/adityamiskin/envman/main/install.sh | sh
 
 # Use
 cd your-project
@@ -29,6 +26,7 @@ envman add .env        # Store (encrypted)
 rm .env                # Delete local copy
 envman get             # Retrieve decrypted
 envman get -p other-project  # Fetch from another project
+envman version         # Check version and updates
 ```
 
 ---

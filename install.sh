@@ -50,10 +50,10 @@ download_and_install() {
 
     local temp_dir
     temp_dir=$(mktemp -d)
-    local archive_file="${temp_dir}/envman.tar.gz"
+    local archive_file="${temp_dir}/envman.gz"
 
     curl -sSL -o "${archive_file}" "${url}"
-    tar -xzf "${archive_file}" -C "${temp_dir}"
+    gunzip -c "${archive_file}" > "${temp_dir}/envman"
 
     mkdir -p "${INSTALL_DIR}"
     cp "${temp_dir}/envman" "${INSTALL_DIR}/envman"

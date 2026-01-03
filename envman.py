@@ -4,6 +4,40 @@ import json
 import subprocess
 from pathlib import Path
 import click
+import keyring
+from cryptography.fernet import Fernet, InvalidToken
+
+KEYCHAIN_SERVICE = "envman"
+KEYCHAIN_KEY_NAME = "encryption_key"
+
+
+def get_or_create_key():
+    key = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_NAME)
+    if not key:
+        key = Fernet.generate_key().decode()
+        keyring.set_password(KEYCHAIN_SERVICE, KEYCHAIN_KEY_NAME, key)
+    return key
+
+
+def encrypt(content: str) -> str:
+    key = get_or_create_key()
+    f = Fernet(key.encode())
+    return f.encrypt(content.encode()).decode()
+
+
+def decrypt(encrypted: str) -> str:
+    key = get_or_create_key()
+    f = Fernet(key.encode())
+    return f.decrypt(encrypted.encode()).decode()
+
+
+def is_encrypted(content: str) -> bool:
+    try:
+        decrypt(content)
+        return True
+    except (InvalidToken, Exception):
+        return False
+
 
 STORAGE_DIR = Path.home() / ".envman"
 STORAGE_FILE = STORAGE_DIR / "data.db"
@@ -66,6 +100,20 @@ def migrate_json_to_sqlite():
     click.echo("Migrated legacy JSON data to SQLite.")
 
 
+def migrate_plaintext_to_encrypted():
+    conn = get_db()
+    cursor = conn.execute("SELECT project_name, filename, content FROM env_files")
+    for row in cursor.fetchall():
+        if not is_encrypted(row["content"]):
+            encrypted = encrypt(row["content"])
+            conn.execute(
+                "UPDATE env_files SET content = ? WHERE project_name = ? AND filename = ?",
+                (encrypted, row["project_name"], row["filename"]),
+            )
+    conn.commit()
+    conn.close()
+
+
 def detect_project():
     try:
         git_root = subprocess.check_output(
@@ -87,6 +135,14 @@ def detect_project():
 def cli():
     """EnvMan: Manage your project environment files easily."""
     migrate_json_to_sqlite()
+    migrate_plaintext_to_encrypted()
+
+
+@cli.command()
+def init():
+    """Initialize encryption key in system keychain."""
+    get_or_create_key()
+    click.echo("Encryption key stored in system keychain.")
 
 
 @cli.command()
@@ -101,12 +157,13 @@ def add(filename):
         return
 
     content = path.read_text().strip("\n")
+    encrypted = encrypt(content)
     conn = get_db()
 
     conn.execute("INSERT OR IGNORE INTO projects (name) VALUES (?)", (project,))
     conn.execute(
         "INSERT OR REPLACE INTO env_files (project_name, filename, content) VALUES (?, ?, ?)",
-        (project, filename, content),
+        (project, filename, encrypted),
     )
     conn.commit()
     conn.close()
@@ -133,7 +190,11 @@ def get(filename, output, project):
         click.echo(f"Error: '{filename}' not found for project '{project}'.")
         return
 
-    content = row["content"]
+    try:
+        content = decrypt(row["content"])
+    except InvalidToken:
+        content = row["content"]
+
     output_path = Path(output if output else filename)
     output_path.write_text(content + "\n")
     click.echo(f"Restored '{filename}' to '{output_path}'.")

@@ -3,6 +3,8 @@ name = "envman"
 version = "0.1.0"
 dependencies = [
     "click",
+    "cryptography",
+    "keyring",
 ]
 
 [project.scripts]

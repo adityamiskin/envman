@@ -1,34 +1,72 @@
 import os
+import sqlite3
 import json
 import subprocess
 from pathlib import Path
 import click
 
 STORAGE_DIR = Path.home() / ".envman"
-STORAGE_FILE = STORAGE_DIR / "data.json"
+STORAGE_FILE = STORAGE_DIR / "data.db"
+LEGACY_JSON_FILE = STORAGE_DIR / "data.json"
 
 
-def get_storage():
-    if not STORAGE_FILE.exists():
+def get_db():
+    if not STORAGE_DIR.exists():
         STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-        with open(STORAGE_FILE, "w") as f:
-            json.dump({"projects": {}}, f)
-        return {"projects": {}}
 
-    with open(STORAGE_FILE, "r") as f:
+    conn = sqlite3.connect(STORAGE_FILE)
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS projects (
+            name TEXT PRIMARY KEY
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS env_files (
+            project_name TEXT,
+            filename TEXT,
+            content TEXT,
+            PRIMARY KEY (project_name, filename),
+            FOREIGN KEY (project_name) REFERENCES projects(name) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.commit()
+    return conn
+
+
+def migrate_json_to_sqlite():
+    if not LEGACY_JSON_FILE.exists():
+        return
+
+    with open(LEGACY_JSON_FILE, "r") as f:
         try:
-            return json.load(f)
+            data = json.load(f)
         except json.JSONDecodeError:
-            return {"projects": {}}
+            return
 
+    conn = get_db()
+    for project_name, project_data in data.get("projects", {}).items():
+        conn.execute(
+            "INSERT OR IGNORE INTO projects (name) VALUES (?)", (project_name,)
+        )
+        for filename, content in project_data.get("env_files", {}).items():
+            content = content.replace("\\n", "\n")
+            conn.execute(
+                "INSERT OR REPLACE INTO env_files (project_name, filename, content) VALUES (?, ?, ?)",
+                (project_name, filename, content),
+            )
+    conn.commit()
+    conn.close()
 
-def save_storage(data):
-    with open(STORAGE_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+    LEGACY_JSON_FILE.rename(LEGACY_JSON_FILE.with_suffix(".json.bak"))
+    click.echo("Migrated legacy JSON data to SQLite.")
 
 
 def detect_project():
-    # Try git first
     try:
         git_root = subprocess.check_output(
             ["git", "rev-parse", "--show-toplevel"],
@@ -42,15 +80,13 @@ def detect_project():
         subprocess.SubprocessError,
     ):
         pass
-
-    # Fallback to current directory name
     return os.path.basename(os.getcwd())
 
 
 @click.group()
 def cli():
     """EnvMan: Manage your project environment files easily."""
-    pass
+    migrate_json_to_sqlite()
 
 
 @cli.command()
@@ -65,30 +101,39 @@ def add(filename):
         return
 
     content = path.read_text().strip("\n")
-    data = get_storage()
+    conn = get_db()
 
-    if project not in data["projects"]:
-        data["projects"][project] = {"env_files": {}}
-
-    data["projects"][project]["env_files"][filename] = content
-    save_storage(data)
+    conn.execute("INSERT OR IGNORE INTO projects (name) VALUES (?)", (project,))
+    conn.execute(
+        "INSERT OR REPLACE INTO env_files (project_name, filename, content) VALUES (?, ?, ?)",
+        (project, filename, content),
+    )
+    conn.commit()
+    conn.close()
     click.echo(f"Added '{filename}' to project '{project}'.")
 
 
 @cli.command()
-@click.argument("filename", default=".env")
 @click.option("--output", "-o", help="Output filename")
-def get(filename, output):
+@click.option("--project", "-p", help="Project name (defaults to current directory)")
+@click.argument("filename", default=".env", required=False)
+def get(filename, output, project):
     """Retrieve an env file from storage."""
-    project = detect_project()
-    data = get_storage()
+    project = project or detect_project()
+    conn = get_db()
 
-    project_data = data["projects"].get(project)
-    if not project_data or filename not in project_data["env_files"]:
+    cursor = conn.execute(
+        "SELECT content FROM env_files WHERE project_name = ? AND filename = ?",
+        (project, filename),
+    )
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
         click.echo(f"Error: '{filename}' not found for project '{project}'.")
         return
 
-    content = project_data["env_files"][filename]
+    content = row["content"]
     output_path = Path(output if output else filename)
     output_path.write_text(content + "\n")
     click.echo(f"Restored '{filename}' to '{output_path}'.")
@@ -98,7 +143,6 @@ def get(filename, output):
 @click.argument("filename", default=".env")
 def update(filename):
     """Update stored env file with local content."""
-    # Logic is same as add for whole-file replacement
     ctx = click.get_current_context()
     ctx.invoke(add, filename=filename)
 
@@ -108,45 +152,63 @@ def update(filename):
 def delete(filename):
     """Delete an env file from storage."""
     project = detect_project()
-    data = get_storage()
+    conn = get_db()
 
-    project_data = data["projects"].get(project)
-    if not project_data or filename not in project_data["env_files"]:
+    cursor = conn.execute(
+        "SELECT 1 FROM env_files WHERE project_name = ? AND filename = ?",
+        (project, filename),
+    )
+    if not cursor.fetchone():
+        conn.close()
         click.echo(f"Error: '{filename}' not found for project '{project}'.")
         return
 
-    del data["projects"][project]["env_files"][filename]
-    save_storage(data)
+    conn.execute(
+        "DELETE FROM env_files WHERE project_name = ? AND filename = ?",
+        (project, filename),
+    )
+    conn.commit()
+    conn.close()
     click.echo(f"Deleted '{filename}' from project '{project}'.")
 
 
 @cli.command(name="list")
-def list_files():
+@click.option("--project", "-p", help="Project name (defaults to current directory)")
+def list_files(project):
     """List all stored files for the current project."""
-    project = detect_project()
-    data = get_storage()
+    project = project or detect_project()
+    conn = get_db()
 
-    project_data = data["projects"].get(project)
-    if not project_data or not project_data["env_files"]:
+    cursor = conn.execute(
+        "SELECT filename FROM env_files WHERE project_name = ?", (project,)
+    )
+    files = cursor.fetchall()
+    conn.close()
+
+    if not files:
         click.echo(f"No files stored for project '{project}'.")
         return
 
     click.echo(f"Stored files for '{project}':")
-    for filename in project_data["env_files"]:
-        click.echo(f" - {filename}")
+    for row in files:
+        click.echo(f" - {row['filename']}")
 
 
 @cli.command()
 def projects():
     """List all managed projects."""
-    data = get_storage()
-    if not data["projects"]:
+    conn = get_db()
+    cursor = conn.execute("SELECT name FROM projects ORDER BY name")
+    projects = cursor.fetchall()
+    conn.close()
+
+    if not projects:
         click.echo("No projects managed yet.")
         return
 
     click.echo("Managed projects:")
-    for project in data["projects"]:
-        click.echo(f" - {project}")
+    for row in projects:
+        click.echo(f" - {row['name']}")
 
 
 if __name__ == "__main__":

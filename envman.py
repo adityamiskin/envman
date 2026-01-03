@@ -139,13 +139,6 @@ def cli():
 
 
 @cli.command()
-def init():
-    """Initialize encryption key in system keychain."""
-    get_or_create_key()
-    click.echo("Encryption key stored in system keychain.")
-
-
-@cli.command()
 @click.argument("filename", default=".env")
 def add(filename):
     """Add a local env file to storage."""

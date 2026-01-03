@@ -255,8 +255,14 @@ def list_files(project):
         click.echo(f" - {row['filename']}")
 
 
-@cli.command()
+@cli.group()
 def projects():
+    """Manage projects."""
+    pass
+
+
+@projects.command(name="list")
+def projects_list():
     """List all managed projects."""
     conn = get_db()
     cursor = conn.execute("SELECT name FROM projects ORDER BY name")
@@ -272,9 +278,9 @@ def projects():
         click.echo(f" - {row['name']}")
 
 
-@cli.command()
+@projects.command(name="delete")
 @click.argument("project_name")
-def delete_project(project_name):
+def projects_delete(project_name):
     """Delete a project and all its stored files."""
     conn = get_db()
 

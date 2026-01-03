@@ -53,7 +53,7 @@ download_and_install() {
     local archive_file="${temp_dir}/envman.tar.gz"
 
     curl -sSL -o "${archive_file}" "${url}"
-    tar -xzf "${archive_file}"" -C "${temp_dir}"
+    tar -xzf "${archive_file}" -C "${temp_dir}"
 
     mkdir -p "${INSTALL_DIR}"
     cp "${temp_dir}/envman" "${INSTALL_DIR}/envman"

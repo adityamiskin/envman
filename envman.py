@@ -272,5 +272,23 @@ def projects():
         click.echo(f" - {row['name']}")
 
 
+@cli.command()
+@click.argument("project_name")
+def delete_project(project_name):
+    """Delete a project and all its stored files."""
+    conn = get_db()
+
+    cursor = conn.execute("SELECT 1 FROM projects WHERE name = ?", (project_name,))
+    if not cursor.fetchone():
+        conn.close()
+        click.echo(f"Error: Project '{project_name}' not found.")
+        return
+
+    conn.execute("DELETE FROM projects WHERE name = ?", (project_name,))
+    conn.commit()
+    conn.close()
+    click.echo(f"Deleted project '{project_name}'.")
+
+
 if __name__ == "__main__":
     cli()

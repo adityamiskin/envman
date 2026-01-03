@@ -16,11 +16,15 @@
 
 ## 🚀 Quick Start
 
-```bash
-# Install (Linux/macOS)
-curl -sSf https://raw.githubusercontent.com/adityamiskin/envman/main/install.sh | sh
+### Install
 
-# Use
+```bash
+curl -sSf https://raw.githubusercontent.com/adityamiskin/envman/main/install.sh | sh
+```
+
+### Use
+
+```bash
 cd your-project
 envman add .env        # Store (encrypted)
 rm .env                # Delete local copy

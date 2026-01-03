@@ -1,6 +1,5 @@
 import os
 import sqlite3
-import json
 import subprocess
 import urllib.request
 import json as json_module
@@ -37,17 +36,8 @@ def decrypt(encrypted: str) -> str:
     return f.decrypt(encrypted.encode()).decode()
 
 
-def is_encrypted(content: str) -> bool:
-    try:
-        decrypt(content)
-        return True
-    except (InvalidToken, Exception):
-        return False
-
-
 STORAGE_DIR = Path.home() / ".envman"
 STORAGE_FILE = STORAGE_DIR / "data.db"
-LEGACY_JSON_FILE = STORAGE_DIR / "data.json"
 
 
 def get_db():
@@ -78,48 +68,6 @@ def get_db():
     return conn
 
 
-def migrate_json_to_sqlite():
-    if not LEGACY_JSON_FILE.exists():
-        return
-
-    with open(LEGACY_JSON_FILE, "r") as f:
-        try:
-            data = json.load(f)
-        except json.JSONDecodeError:
-            return
-
-    conn = get_db()
-    for project_name, project_data in data.get("projects", {}).items():
-        conn.execute(
-            "INSERT OR IGNORE INTO projects (name) VALUES (?)", (project_name,)
-        )
-        for filename, content in project_data.get("env_files", {}).items():
-            content = content.replace("\\n", "\n")
-            conn.execute(
-                "INSERT OR REPLACE INTO env_files (project_name, filename, content) VALUES (?, ?, ?)",
-                (project_name, filename, content),
-            )
-    conn.commit()
-    conn.close()
-
-    LEGACY_JSON_FILE.rename(LEGACY_JSON_FILE.with_suffix(".json.bak"))
-    click.echo("Migrated legacy JSON data to SQLite.")
-
-
-def migrate_plaintext_to_encrypted():
-    conn = get_db()
-    cursor = conn.execute("SELECT project_name, filename, content FROM env_files")
-    for row in cursor.fetchall():
-        if not is_encrypted(row["content"]):
-            encrypted = encrypt(row["content"])
-            conn.execute(
-                "UPDATE env_files SET content = ? WHERE project_name = ? AND filename = ?",
-                (encrypted, row["project_name"], row["filename"]),
-            )
-    conn.commit()
-    conn.close()
-
-
 def detect_project():
     try:
         git_root = subprocess.check_output(
@@ -148,8 +96,7 @@ def detect_project():
 )
 def cli():
     """EnvMan: Manage your project environment files easily."""
-    migrate_json_to_sqlite()
-    migrate_plaintext_to_encrypted()
+    pass
 
 
 def get_latest_version():

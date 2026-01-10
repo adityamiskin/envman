@@ -1,1 +1,1 @@
-click
+rich-click

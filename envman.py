@@ -4,7 +4,7 @@ import subprocess
 import urllib.request
 import json as json_module
 from pathlib import Path
-import click
+import rich_click as click
 import keyring
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -85,7 +85,9 @@ def detect_project():
     return os.path.basename(os.getcwd())
 
 
-@click.group()
+@click.group(
+    context_settings=dict(help_option_names=["-h", "--help"], color=True),
+)
 @click.option(
     "--version",
     is_flag=True,
@@ -95,8 +97,13 @@ def detect_project():
     else None,
 )
 def cli():
-    """EnvMan: Manage your project environment files easily."""
-    pass
+    click.echo(
+        click.style(
+            "EnvMan: Manage your project environment files easily.",
+            fg="cyan",
+            bold=True,
+        )
+    )
 
 
 def get_latest_version():

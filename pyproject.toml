@@ -2,7 +2,7 @@
 name = "envman"
 version = "0.1.0"
 dependencies = [
-    "click",
+    "rich-click",
     "cryptography",
     "keyring",
 ]
